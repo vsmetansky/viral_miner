@@ -1,6 +1,6 @@
-import asyncio
-
 from viral_miner.runner import Runner
+import logging
 
 if __name__ == '__main__':
-    asyncio.run(Runner().run())
+    logging.basicConfig(level=logging.INFO)
+    Runner().run()

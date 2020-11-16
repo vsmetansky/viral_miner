@@ -1,5 +1,6 @@
-from aiohttp import ClientSession
-from elasticsearch import AsyncElasticsearch
+import argparse
+
+from elasticsearch import Elasticsearch
 
 from viral_miner.collectors.covid19 import Covid19Collector
 
@@ -10,24 +11,27 @@ class Runner:
         self._session = None
         self._es = None
 
-    async def run(self):
+    def run(self):
         try:
-            await self.start()
-            await self.process()
+            self.start()
+            self.process()
         finally:
-            await self.stop()
+            self.stop()
 
-    async def start(self):
-        self._session = ClientSession()
-        self._es = AsyncElasticsearch()
+    def start(self):
+        self._es = Elasticsearch()
 
-    # TODO add date ranges and name filtering
-    async def process(self):
-        await Covid19Collector(
+    # TODO add name filtering
+    def process(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('start', type=str)
+        parser.add_argument('end', type=str)
+        args = parser.parse_args()
+
+        Covid19Collector(
             es=self._es,
-            session=self._session
+            date_range=[args.start, args.end]
         ).collect()
 
-    async def stop(self):
-        await self._session.close()
-        await self._es.close()
+    def stop(self):
+        self._es.close()

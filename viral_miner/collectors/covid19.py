@@ -1,18 +1,23 @@
-from datetime import datetime, timedelta
+import logging
+import urllib
+import uuid
+
+import pandas as pd
+from elasticsearch.helpers import bulk
 
 from viral_miner.collectors.collector import Collector
+
+logger = logging.getLogger(__name__)
 
 
 class Covid19Collector(Collector):
     # TODO generating collectors from templates
 
-    def __init__(self, es, session):
-        super().__init__(es, session)
-        self._delay = timedelta(days=2)
+    def __init__(self, es, date_range):
+        super().__init__(es)
         self._index_name = 'covid19'
-        self._url = self._url_from_template(
-            ''
-        )
+        self._date_range = pd.date_range(*date_range)
+        self._url = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports_us/{}-{}-{}.csv'
 
     # structure of fetched csv:
     #     "Province_State": "Alabama",
@@ -34,23 +39,29 @@ class Covid19Collector(Collector):
     #     "Testing_Rate": "29386.511012739684",
     #     "Hospitalization_Rate": ""
 
-    # TODO maybe I have to find something fancier...
-    def _normalize(self, loaded):
-        raw_data = tuple(super()._normalize(loaded))
-        for row in raw_data:
-            for k, v in row.items():
-                try:
-                    row[k] = float(v)
-                except ValueError:
-                    continue
-        return raw_data
+    def _load(self):
+        for ts in self._date_range.array:
+            try:
+                yield pd.read_csv(self._url.format(ts.month, ts.day, ts.year))
+            except urllib.error.HTTPError as e:
+                logger.warning(f'[{ts.isoformat()}] Probably GitHub DDOS protection: ' + str(e))
 
-    # we fetch data from CSSEGISandData:
-    # https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports_us/{}-{}-{}.csv
-    def _url_from_template(self, url):
-        delivery_date = datetime.today() - self._delay
-        return url.format(
-            delivery_date.month,
-            delivery_date.day,
-            delivery_date.year
-        )
+    def _normalize(self, loaded):
+        for ts, df in zip(self._date_range.array, loaded):
+            df.fillna(0, inplace=True)
+            df['timestamp'] = ts.isoformat()
+            yield df
+
+    def _dump(self, normalized):
+        for df in normalized:
+            bulk(self._es, self._df_to_actions(df), index=self._index_name)
+
+    def _df_to_actions(self, df):
+        for record in df.to_dict(orient='records'):
+            yield {
+                '_id': self._get_id(record),
+                '_source': record
+            }
+
+    def _get_id(self, record):
+        return uuid.uuid5(uuid.NAMESPACE_OID, record['Province_State'] + record['timestamp'])
