@@ -1,6 +1,7 @@
 import logging
 import urllib
 import uuid
+from pprint import pprint
 
 import pandas as pd
 from elasticsearch.helpers import bulk
@@ -49,6 +50,9 @@ class Covid19Collector(Collector):
     def _normalize(self, loaded):
         for ts, df in zip(self._date_range.array, loaded):
             df.fillna(0, inplace=True)
+            df['location'] = df['Lat'].astype(str).str.cat(df['Long_'].astype(str), sep=',')
+            df.drop('Lat', inplace=True, axis=1)
+            df.drop('Long_', inplace=True, axis=1)
             df['timestamp'] = ts.isoformat()
             yield df
 
